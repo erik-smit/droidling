@@ -15,6 +15,7 @@ import com.github.ktrnka.droidling.R;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.util.Log;
@@ -123,11 +124,12 @@ public class InterpersonalActivity extends RefreshableActivity
 		
 		/*************** PROCESS SENT MESSAGES *******************/
 		time = System.currentTimeMillis();
-		Cursor messages = getContentResolver().query(Sms.SENT_URI, new String[] { Sms.BODY, Sms.ADDRESS }, null, null, null);
+		SQLiteDatabase wadb = SQLiteDatabase.openDatabase("/storage/emulated/legacy/WhatsApp/Databases/msgstore.db", null, 1);
+				
+		Cursor messages = wadb.rawQuery("SELECT key_remote_jid, data FROM messages WHERE key_from_me=1 ORDER BY timestamp ASC", null); // getContentResolver().query(Sms.SENT_URI, new String[] { Sms.BODY, Sms.ADDRESS }, null, null, null);
 
 		final HashMap<String, int[]> sentCounts = new HashMap<String, int[]>();
-		
-		
+				
 		final HashMap<String,CorpusStats> sentStats = new HashMap<String,CorpusStats>();
 		final CorpusStats overallSentStats = new CorpusStats();
 		
@@ -135,26 +137,26 @@ public class InterpersonalActivity extends RefreshableActivity
 		
 		if (messages.moveToFirst())
 			{
-			final int addressIndex = messages.getColumnIndexOrThrow(Sms.ADDRESS);
-			final int bodyIndex = messages.getColumnIndexOrThrow(Sms.BODY);
+			final int addressIndex = messages.getColumnIndexOrThrow("key_remote_jid");
+			final int bodyIndex = messages.getColumnIndexOrThrow("data");
 			do
 				{
 				// figure out the name of the destination, store it in person
 				String recipientId = messages.getString(addressIndex);
 
 				String recipientName = app.lookupContactName(recipientId);
-
-				if (recipientName != null)
+				String body = messages.getString(bodyIndex);
+				
+				if (recipientName != null && body != null)
 					{
 					if (!contactPhotoUris.containsKey(recipientName))
-						contactPhotoUris.put(recipientName, app.lookupContactInfo(recipientId, ExtendedApplication.ContactInfo.PHOTO_URI));
-
+						contactPhotoUris.put(recipientName,  app.lookupContactInfo(recipientName, ExtendedApplication.ContactInfo.PHOTO_URI));
+					
 					if (sentCounts.containsKey(recipientName))
 						sentCounts.get(recipientName)[0]++;
 					else
 						sentCounts.put(recipientName, new int[] { 1 });
 					
-					String body = messages.getString(bodyIndex);
 					if (!sentStats.containsKey(recipientName))
 						sentStats.put(recipientName, new CorpusStats());
 					
@@ -181,7 +183,7 @@ public class InterpersonalActivity extends RefreshableActivity
 		
 		/*************** PROCESS RECEIVED MESSAGES *******************/
 		time = System.currentTimeMillis();
-		messages = getContentResolver().query(Sms.RECEIVED_URI, new String[] { Sms.BODY, Sms.ADDRESS }, null, null, null);
+		messages = wadb.rawQuery("SELECT key_remote_jid, data FROM messages WHERE key_from_me=0 ORDER BY timestamp ASC", null); // getContentResolver().query(Sms.SENT_URI, new String[] { Sms.BODY, Sms.ADDRESS }, null, null, null);
 
 		final HashMap<String, int[]> receivedCounts = new HashMap<String, int[]>();
 		final HashMap<String,CorpusStats> receivedStats = new HashMap<String,CorpusStats>();
@@ -190,8 +192,8 @@ public class InterpersonalActivity extends RefreshableActivity
 		
 		if (messages.moveToFirst())
 			{
-			final int addressIndex = messages.getColumnIndexOrThrow(Sms.ADDRESS);
-			final int bodyIndex = messages.getColumnIndexOrThrow(Sms.BODY);
+			final int addressIndex = messages.getColumnIndexOrThrow("key_remote_jid");
+			final int bodyIndex = messages.getColumnIndexOrThrow("data");
 			
 			do
 				{
@@ -199,8 +201,9 @@ public class InterpersonalActivity extends RefreshableActivity
 				String senderId = messages.getString(addressIndex);
 
 				String senderName = app.lookupContactName(senderId);
-
-				if (senderName != null)
+				String message = messages.getString(bodyIndex);
+			
+				if (senderName != null && message != null)
 					{
 					if (!contactPhotoUris.containsKey(senderName))
 						contactPhotoUris.put(senderName, app.lookupContactInfo(senderName, ExtendedApplication.ContactInfo.PHOTO_URI));
@@ -212,9 +215,7 @@ public class InterpersonalActivity extends RefreshableActivity
 					
 					if (!receivedStats.containsKey(senderName))
 						receivedStats.put(senderName, new CorpusStats());
-					
-					String message = messages.getString(bodyIndex);
-					
+				     
 					try
 						{
 						receivedStats.get(senderName).train(message);
@@ -239,7 +240,8 @@ public class InterpersonalActivity extends RefreshableActivity
 		/*************** PROCESS IN THREADED VIEW ************************/
 		// TODO:  switch all processing to use the FULL set of messages with this
 		time = System.currentTimeMillis();
-		messages = getContentResolver().query(Sms.CONTENT_URI, new String[] { Sms.ADDRESS, Sms.DATE, Sms.TYPE }, null, null, "date asc");
+		
+		messages = wadb.rawQuery("SELECT timestamp, key_remote_jid, data, key_from_me FROM messages ORDER BY timestamp ASC", null); // getContentResolver().query(Sms.SENT_URI, new String[] { Sms.BODY, Sms.ADDRESS }, null, null, null);
 		int numMessages = messages.getCount();
 		
 		// mapping of (other person's parsed address) => [ type, date millis ]
@@ -250,9 +252,9 @@ public class InterpersonalActivity extends RefreshableActivity
 		
 		if (messages.moveToFirst())
 			{
-			final int addressIndex = messages.getColumnIndexOrThrow(Sms.ADDRESS);
-			final int dateIndex = messages.getColumnIndexOrThrow(Sms.DATE);
-			final int typeIndex = messages.getColumnIndexOrThrow(Sms.TYPE);
+			final int addressIndex = messages.getColumnIndexOrThrow("key_remote_jid");
+			final int dateIndex = messages.getColumnIndexOrThrow("timestamp");
+			final int typeIndex = messages.getColumnIndexOrThrow("key_from_me");
 			
 			do
 				{
@@ -267,19 +269,19 @@ public class InterpersonalActivity extends RefreshableActivity
 				int type = messages.getInt(typeIndex);
 				
 				// skip unknown message types (drafts, etc?)
-				if (type != 1 && type != 2)
+				if (type != 1 && type != 0)
 					continue;
 				
 				// figure out the time diff if possible
-				if (previousMessage.containsKey(person) && previousMessage.get(person)[0] != type)
+				if (previousMessage.containsKey(person))
 					{
 					// then treat it as a reply!
 					long diff = millis - previousMessage.get(person)[1];
 					
 					// responses within an hour
-					if (diff < 60l * 60 * 1000)
+					if (diff < 60l * 60 * 1000 )
 						{
-						if (type == 1)
+						if (type == 0)
 							{
 							// received message
 							if (!theirReplyTimes.containsKey(person))

@@ -35,6 +35,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
 import android.graphics.Bitmap;
 import android.graphics.Bitmap.CompressFormat;
 import android.graphics.Color;
@@ -323,8 +324,12 @@ public class PersonalActivity extends RefreshableActivity implements OnItemSelec
 
 		// step 2: scan sent messages
 		time = System.currentTimeMillis();
-		String[] sentColumns = new String[] { Sms.BODY, Sms.DATE, Sms.ADDRESS };
-		Cursor messages = getContentResolver().query(Sms.SENT_URI, sentColumns, null, null, null);
+		SQLiteDatabase wadb = SQLiteDatabase.openDatabase("/storage/emulated/legacy/WhatsApp/Databases/msgstore.db", null, 1);
+		
+		Cursor messages = wadb.rawQuery("SELECT timestamp, key_remote_jid, data FROM messages WHERE key_from_me=1 ORDER BY timestamp ASC", null); // getContentResolver().query(Sms.SENT_URI, new String[] { Sms.BODY, Sms.ADDRESS }, null, null, null);
+
+//		String[] sentColumns = new String[] { Sms.BODY, Sms.DATE, Sms.ADDRESS };
+//		Cursor messages = getContentResolver().query(Sms.SENT_URI, sentColumns, null, null, null);
 
 		final HashMap<String, int[]> personCounts = new HashMap<String, int[]>();
 		
@@ -349,14 +354,18 @@ public class PersonalActivity extends RefreshableActivity implements OnItemSelec
 
 		if (messages.moveToFirst())
 			{
-			final int bodyIndex = messages.getColumnIndexOrThrow(Sms.BODY);
-			final int dateIndex = messages.getColumnIndexOrThrow(Sms.DATE);
-			final int addressIndex = messages.getColumnIndexOrThrow(Sms.ADDRESS);
+			final int bodyIndex = messages.getColumnIndexOrThrow("data");
+			final int dateIndex = messages.getColumnIndexOrThrow("timestamp");
+			final int addressIndex = messages.getColumnIndexOrThrow("key_remote_jid");
 			
 			do
 				{
 				// TODO: Replace this with truecasing
-				String body = messages.getString(bodyIndex).toLowerCase(Locale.getDefault());
+				String body = messages.getString(bodyIndex);
+				if (body == null) { 
+				  body = "";
+				}
+				body = body.toLowerCase(Locale.getDefault());
 
 				long millis = messages.getLong(dateIndex);
 				Date date = new Date(millis);

@@ -12,6 +12,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.util.Log;
@@ -189,6 +190,20 @@ public class LanguageIdentificationActivity extends RefreshableActivity
 		setPreference(SAVE_DISPLAY_KEY, System.currentTimeMillis() - time);
 		}
 
+	private static SQLiteDatabase getDB()
+		{
+			SQLiteDatabase wadb = null;
+			try
+			{
+				wadb = SQLiteDatabase.openDatabase("/storage/emulated/legacy/WhatsApp/Databases/msgstore.db", null, 1);
+			}
+			catch(Exception e)
+			{
+				System.err.println("SQLERROR = " + e.getMessage());
+			}
+			return wadb;
+		}
+	
 	/**
 	 * Build unigram models of messages sent to each contact.
 	 */
@@ -196,25 +211,28 @@ public class LanguageIdentificationActivity extends RefreshableActivity
 		{
 		ExtendedApplication app = (ExtendedApplication) getApplication();
 
-		Cursor messages = getContentResolver().query(Sms.SENT_URI, new String[] { Sms.BODY, Sms.ADDRESS }, null, null, null);
+		String query = "SELECT key_remote_jid, data FROM messages"; // WHERE _id = " + msgid + ";";
+		SQLiteDatabase wadb = SQLiteDatabase.openDatabase("/storage/emulated/legacy/WhatsApp/Databases/msgstore.db", null, 1);
+				
+		Cursor messages = wadb.rawQuery("SELECT key_remote_jid, data FROM messages", null); // getContentResolver().query(Sms.SENT_URI, new String[] { Sms.BODY, Sms.ADDRESS }, null, null, null);
 		int numMessages = messages.getCount();
-
+				
 		sentStats = new HashMap<String,CorpusStats>();
 		
 		if (messages.moveToFirst())
 			{
-			final int addressIndex = messages.getColumnIndexOrThrow(Sms.ADDRESS);
-			final int bodyIndex = messages.getColumnIndexOrThrow(Sms.BODY);
+			final int addressIndex = messages.getColumnIndexOrThrow("key_remote_jid");
+			final int bodyIndex = messages.getColumnIndexOrThrow("data");
 			do
 				{
 				// figure out the name of the destination, store it in person
 				String recipientId = messages.getString(addressIndex);
 
 				String recipientName = app.lookupContactName(recipientId);
+				String body = messages.getString(bodyIndex);
 
-				if (recipientName != null)
+				if (recipientName != null && body != null)
 					{
-					String body = messages.getString(bodyIndex);
 					if (!sentStats.containsKey(recipientName))
 						sentStats.put(recipientName, new CorpusStats());
 					
